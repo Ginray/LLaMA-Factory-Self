@@ -174,6 +174,7 @@ def convert_sharegpt(
     return outputs
 
 
+# NOTE : 在align中进行了数据集的固定格式化，加入了context这个一个字段
 def align_dataset(
     dataset: Union["Dataset", "IterableDataset"], dataset_attr: "DatasetAttr", data_args: "DataArguments"
 ) -> Union["Dataset", "IterableDataset"]:

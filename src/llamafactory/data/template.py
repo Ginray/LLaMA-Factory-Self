@@ -45,6 +45,8 @@ class Template:
         """
         encoded_pairs = self._encode(tokenizer, messages, system, tools, cutoff_len, reserved_label_len)
         prompt_ids = []
+        #   将所有轮次的 query_ids 和 resp_ids 拼接成一个完整的 prompt_ids，
+        #   并返回最后一轮的 response_ids 作为 answer_ids。
         for query_ids, resp_ids in encoded_pairs[:-1]:
             prompt_ids += query_ids + resp_ids
         prompt_ids = prompt_ids + encoded_pairs[-1][0]
@@ -81,6 +83,10 @@ class Template:
         """
         system = system or self.default_system
         encoded_messages = []
+        '''
+        循环遍历消息列表，根据消息位置和内容组装元素列表。
+        对于第一条消息，如果有 system 或 tools 或者 force_system 为真，则应用 format_system 和（如果有的话） format_tools。
+        '''
         for i, message in enumerate(messages):
             elements = []
             if i == 0 and (system or tools or self.force_system):
@@ -88,7 +94,7 @@ class Template:
                 elements += self.format_system.apply(content=(system + tool_text))
             elif i > 0 and i % 2 == 0:
                 elements += self.format_separator.apply()
-
+            # 这儿先按照模板把字符串拼接了，template在这还是先按照格式把对话内容重写一下
             if message["role"] == Role.USER.value:
                 elements += self.format_user.apply(content=message["content"], idx=str(i // 2))
             elif message["role"] == Role.ASSISTANT.value:
@@ -99,7 +105,7 @@ class Template:
                 elements += self.format_function.apply(content=message["content"])
             else:
                 raise NotImplementedError("Unexpected role: {}".format(message["role"]))
-
+            # 在这儿进行encode操作
             encoded_messages.append(self._convert_elements_to_ids(tokenizer, elements))
 
         return self._make_pairs(encoded_messages, cutoff_len, reserved_label_len)
