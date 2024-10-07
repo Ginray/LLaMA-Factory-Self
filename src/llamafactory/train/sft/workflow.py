@@ -30,7 +30,7 @@ def run_sft(
 ):
     tokenizer_module = load_tokenizer(model_args)  # 还会获取auto process， 用于获取预处理方法
     tokenizer = tokenizer_module["tokenizer"]
-    dataset = get_dataset(model_args, data_args, training_args, stage="sft", **tokenizer_module)
+    dataset = get_dataset(model_args, data_args, training_args, stage="sft", **tokenizer_module) # 这流程是最复杂的
     model = load_model(tokenizer, model_args, finetuning_args, training_args.do_train)
 
     if training_args.predict_with_generate:

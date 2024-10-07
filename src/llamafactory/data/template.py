@@ -445,6 +445,8 @@ _register_template(
 )
 
 
+# token id : 195：当前对话是人类，符号为 <reserved_106>
+# token id : 196：当前对话是 GPT，符号为 <reserved_107>
 _register_template(
     name="baichuan2",
     format_user=StringFormatter(slots=["<reserved_106>{{content}}<reserved_107>"]),
