@@ -15,16 +15,33 @@
 
 from typing import Callable, TypedDict
 
-from typing_extensions import NotRequired
+from typing_extensions import NotRequired, Required
 
 from ...extras.types import DPOSample, Sample, SFTSample
+from ...extras import logging
+
+logger = logging.get_logger(__name__)
 
 
 class AlpacaSample(TypedDict, total=False):
     system: NotRequired[str]
-    instruction: NotRequired[str]
+    instruction: Required[str]
     input: NotRequired[str]
-    output: NotRequired[str]
+    output: Required[str]
+    history: NotRequired[str]
+
+
+ShareGPTMessage = TypedDict("ShareGPTMessage", {
+    "from": Required[str],  # Role of the message sender (e.g., "human", "gpt", "system")
+    "value": Required[str]  # Content of the message
+})
+
+
+class ShareGPTSample(TypedDict, total=False):
+    """Type definition for raw ShareGPT sample."""
+    conversations: Required[list[ShareGPTMessage]]
+    id: NotRequired[str]
+    meta: NotRequired[dict]
 
 
 class PairSample(TypedDict, total=False):
@@ -48,6 +65,16 @@ def alpaca_converter(raw_sample: AlpacaSample) -> SFTSample:
             {"role": "system", "content": [{"type": "text", "value": raw_sample["system"]}], "loss_weight": 0.0}
         )
 
+    if "history" in raw_sample and isinstance(raw_sample["history"], list):
+        for old_prompt, old_response in raw_sample["history"]:
+            messages.append(
+                {"role": "user", "content": [{"type": "text", "value": old_prompt}], "loss_weight": 0.0}
+            )
+
+            messages.append(
+                {"role": "assistant", "content": [{"type": "text", "value": old_response}], "loss_weight": 1.0}
+            )
+
     if "instruction" in raw_sample or "input" in raw_sample:
         messages.append(
             {
@@ -65,6 +92,72 @@ def alpaca_converter(raw_sample: AlpacaSample) -> SFTSample:
         )
 
     return {"messages": messages}
+
+
+def sharegpt_converter(raw_sample: ShareGPTSample) -> SFTSample:
+    """
+    Converts a raw ShareGPT sample into a formatted SFT (Supervised Fine-Tuning) sample.
+    The logic of this function is consistent with the v0 version, while only retaining the SFT scenarios.
+
+    Args:
+        raw_sample (ShareGPTSample): A raw sample in ShareGPT format.
+
+    Returns:
+        dict: A dictionary containing the formatted 'messages' list for SFT training.
+              Returns an empty list if the input data is invalid.
+    """
+    tag_mapping = {
+        "human": "user",
+        "gpt": "assistant",
+        "observation": "observation",
+        "function_call": "function",
+    }
+    odd_tags = ("human", "observation")
+    even_tags = ("gpt", "function_call")
+    accept_tags = (odd_tags, even_tags)
+    messages = raw_sample["conversations"]
+    aligned_messages = []
+    system_content = ""
+
+    # Extract and handle system message if present (typically the first message)
+    if len(messages) != 0 and messages[0]["from"] == "system":
+        system_content = messages[0]["value"]
+        messages = messages[1:]
+    else:
+        system_content = ""
+
+    aligned_messages.append(
+        {
+            "role": "system",
+            "content": [{"type": "text", "value": system_content}],
+            "loss_weight": 0.0
+        }
+    )
+
+    broken_data = False
+    for turn_idx, message in enumerate(messages):
+        if message["from"] not in accept_tags[turn_idx % 2]:
+            logger.warning_rank0(f"Invalid role tag in {messages}.")
+            broken_data = True
+            break
+
+        aligned_messages.append(
+            {
+                "role": tag_mapping[message["from"]],
+                "content": [{"type": "text", "value": message["value"]}],
+                "loss_weight": 0.0 if message["from"] in odd_tags else 1.0
+            }
+        )
+
+    if len(aligned_messages) % 2 == 0:  # The count after including the system message must be an odd number.
+        logger.warning_rank0(f"Invalid message count in {messages}.")
+        broken_data = True
+
+    if broken_data:
+        logger.warning_rank0("Skipping this abnormal example.")
+        return {"messages": []}
+    else:  # normal example
+        return {"messages": aligned_messages}
 
 
 def pair_converter(raw_sample: PairSample) -> DPOSample:
@@ -148,6 +241,7 @@ def pair_converter(raw_sample: PairSample) -> DPOSample:
 CONVERTERS = {
     "alpaca": alpaca_converter,
     "pair": pair_converter,
+    "sharegpt": sharegpt_converter,
 }
 
 
